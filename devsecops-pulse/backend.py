@@ -60,8 +60,8 @@ app.add_middleware(
 
 # GitHub API Configuration
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "your_token_here")
-REPO_OWNER = "chshahid119"
-REPO_NAME = "msc-devsecops-project"
+REPO_OWNER = "UzairRan"
+REPO_NAME = "Devsecops-pipeline-artifact"
 HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github.v3+json"
