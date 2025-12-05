@@ -21,10 +21,13 @@ RUN pip install --upgrade pip && \
     pip install bandit pip-audit pytest checkov
 
 # -----------------------------------------------------
-# Install tfsec
+# Install tfsec - FIXED WORKING VERSION
 # -----------------------------------------------------
-RUN curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash \
-    && chmod +x /usr/local/bin/tfsec
+RUN wget -q https://github.com/aquasecurity/tfsec/releases/download/v1.28.6/tfsec_1.28.6_linux_amd64.tar.gz \
+    && tar -xzf tfsec_1.28.6_linux_amd64.tar.gz tfsec \
+    && mv tfsec /usr/local/bin/tfsec \
+    && chmod +x /usr/local/bin/tfsec \
+    && rm tfsec_1.28.6_linux_amd64.tar.gz
 
 # -----------------------------------------------------
 # Install Trivy
@@ -34,16 +37,16 @@ RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/
     && chmod +x /usr/local/bin/trivy
 
 # -----------------------------------------------------
-# Install Gitleaks (auto-detect latest release)
+# Install Gitleaks - FIXED (use GitHub API)
 # -----------------------------------------------------
-RUN curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
-    | grep browser_download_url \
-    | grep linux-amd64 \
-    | cut -d '"' -f 4 \
-    | wget -i - -O /usr/local/bin/gitleaks \
-    && chmod +x /usr/local/bin/gitleaks
+RUN GITLEAKS_VERSION=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/') \
+    && wget https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz -O gitleaks.tar.gz \
+    && tar -xzf gitleaks.tar.gz gitleaks \
+    && mv gitleaks /usr/local/bin/gitleaks \
+    && chmod +x /usr/local/bin/gitleaks \
+    && rm gitleaks.tar.gz
 
 # -----------------------------------------------------
 # Default command
 # -----------------------------------------------------
-CMD ["bash"]
+CMD ["bash"] 
