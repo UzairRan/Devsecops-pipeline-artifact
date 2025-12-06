@@ -117,7 +117,7 @@ pipeline {
         }
     }
 
-        post {
+    post {
         always {
             archiveArtifacts artifacts: '${REPORT_DIR}/*.json', fingerprint: true
             junit testResults: '**/test-reports/*.xml', allowEmptyResults: true
@@ -128,4 +128,5 @@ pipeline {
         failure {
             echo '❌ Pipeline failed! Check logs above.'
         }
-    } 
+    }
+} 
