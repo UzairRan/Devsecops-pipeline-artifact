@@ -1,5 +1,11 @@
 pipeline {
-    agent any  // ← ONLY this line, remove commented docker block!
+    agent {
+        docker {
+            image 'devsecops-tools:latest'
+            args '-u root --privileged -v /var/run/docker.sock:/var/run/docker.sock'
+            reuseNode true
+        }
+    }
 
     environment {
         DOCKER_IMAGE = "devsecops-app"
@@ -9,102 +15,81 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/UzairRan/Devsecops-pipeline-artifact.git' 
+                checkout scm
             }
         }
 
-        stage('Prepare') {
+        stage('Verify Tools') {
             steps {
                 sh '''
-                echo "Environment ready — installing tools..."
-
-                mkdir -p ${REPORT_DIR}
-
-                # Install tools if missing (for agent any)
-                apk add python3 py3-pip docker || true
-                pip3 install bandit pip-audit pytest checkov || true
-
-                # Verify tools
+                echo "=== Security Tools Verification ==="
                 python3 --version
-                pip3 --version
-                bandit --version || echo "bandit not found"
+                bandit --version
+                trivy --version
+                tfsec --version
+                checkov --version
+                gitleaks version
+                echo "All tools ready!"
                 '''
             }
         }
 
-        stage('Build Docker') {
+        stage('Build Application') {
             steps {
                 sh 'docker build -t $DOCKER_IMAGE ./app'
             }
         }
 
-        stage('Unit Tests') {
-            steps {
-                sh 'pytest -q --disable-warnings --maxfail=1 || true'
+        stage('Security Scans') {
+            parallel {
+                stage('SAST - Bandit') {
+                    steps {
+                        sh 'bandit -r app/src -f json -o ${REPORT_DIR}/bandit.json'
+                    }
+                }
+                stage('Dependency Scan') {
+                    steps {
+                        sh 'pip-audit -r app/requirements.txt -f json -o ${REPORT_DIR}/pip-audit.json'
+                    }
+                }
+                stage('Secret Scan') {
+                    steps {
+                        sh 'gitleaks detect --source . --report-path ${REPORT_DIR}/gitleaks.json'
+                    }
+                }
             }
         }
 
-        stage('SAST - Bandit') {
-            steps {
-                sh 'bandit -r app/src -f json -o reports/bandit-report.json || true'
-            }
-        }
-
-        stage('Dependency Scan - pip-audit') {
-            steps {
-                sh 'pip-audit -r app/requirements.txt -f json -o reports/pip-audit-report.json || true'
-            }
-        }
-
-        stage('Secret Scan - Gitleaks') {
-            steps {
-                sh 'gitleaks detect -v --report-path reports/gitleaks-report.json || true'
-            }
-        }
-
-        stage('Container Scan - Trivy') {
-            steps {
-                sh 'trivy image --format json -o reports/trivy-report.json $DOCKER_IMAGE || true'
-            }
-        }
-
-        stage('SBOM') {
-            steps {
-                sh 'trivy image --format cyclonedx --output reports/sbom.json $DOCKER_IMAGE || true'
-            }
-        }
-
-        stage('Terraform Security Scan') {
+        stage('Container Security') {
             steps {
                 sh '''
-                echo "Running Terraform Security Scans..."
-                # Install terraform tools if missing
-                wget https://github.com/aquasecurity/tfsec/releases/download/v1.28.6/tfsec_1.28.6_linux_amd64.tar.gz -O tfsec.tar.gz || true
-                tar -xzf tfsec.tar.gz tfsec || true
-                chmod +x tfsec || true
-                ./tfsec terraform --format json > reports/tfsec-report.json || true
+                trivy image --format json -o ${REPORT_DIR}/trivy.json $DOCKER_IMAGE
+                trivy image --format cyclonedx -o ${REPORT_DIR}/sbom.json $DOCKER_IMAGE
                 '''
             }
         }
 
-        stage('Sign Image (cosign)') {
+        stage('Infrastructure Security') {
             steps {
                 sh '''
-                which cosign || echo "cosign not installed — skipping signing"
+                tfsec terraform --format json > ${REPORT_DIR}/tfsec.json
+                checkov -d terraform -o json > ${REPORT_DIR}/checkov.json
                 '''
             }
         }
 
-        stage('Push Docker') {
+        stage('Push to Docker Hub') {
+            when {
+                environment name: 'PUSH_TO_REGISTRY', value: 'true'
+            }
             environment {
-                DOCKER_USERNAME = credentials('docker-username')
-                DOCKER_PASSWORD = credentials('docker-password')
+                DOCKER_USER = credentials('docker-hub')
             }
             steps {
                 sh '''
-                echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin || true
-                docker tag $DOCKER_IMAGE $DOCKER_USERNAME/$DOCKER_IMAGE:latest || true
-                docker push $DOCKER_USERNAME/$DOCKER_IMAGE:latest || true
+                echo $DOCKER_USER_PSW | docker login -u $DOCKER_USER_USR --password-stdin
+                docker tag $DOCKER_IMAGE $DOCKER_USER_USR/$DOCKER_IMAGE:latest
+                docker push $DOCKER_USER_USR/$DOCKER_IMAGE:latest
                 '''
             }
         }
@@ -112,8 +97,14 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: 'reports/*.json', fingerprint: true
-            junit allowEmptyResults: true, testResults: '**/test-*.xml'
+            archiveArtifacts artifacts: '${REPORT_DIR}/*.json', fingerprint: true
+            junit '**/test-reports/*.xml'
+        }
+        success {
+            echo 'Pipeline succeeded! Security reports generated.'
+        }
+        failure {
+            echo 'Pipeline failed! Check logs above.'
         }
     }
 } 
