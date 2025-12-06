@@ -84,8 +84,8 @@ pipeline {
             steps {
                 sh '''
                 mkdir -p ${REPORT_DIR}
-                trivy image --format json -o ${REPORT_DIR}/trivy.json $DOCKER_IMAGE || true
-                trivy image --format cyclonedx -o ${REPORT_DIR}/sbom.json $DOCKER_IMAGE || true
+                timeout 300 trivy image --format json -o ${REPORT_DIR}/trivy.json $DOCKER_IMAGE || echo "Trivy scan timed out"
+                timeout 60 trivy image --format cyclonedx -o ${REPORT_DIR}/sbom.json $DOCKER_IMAGE || echo "SBOM generation timed out"
                 '''
             }
         }
@@ -119,7 +119,8 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: '${REPORT_DIR}/*.json', fingerprint: true
+            sh 'ls -la reports/ || echo "No reports directory"'
+            archiveArtifacts artifacts: 'reports/*.json', fingerprint: true, allowEmptyArchive: true
             junit testResults: '**/test-reports/*.xml', allowEmptyResults: true
         }
         success {
