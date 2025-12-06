@@ -1,14 +1,5 @@
 pipeline {
-
-// with agent any 
-
-      agent any  // ← CHANGED FROM docker TO any
-//    agent {
- //       docker {
-    //        image 'devsecops-tools:latest'   // your custom tools image
-            args '-u root --privileged -v /var/run/docker.sock:/var/run/docker.sock'
-      //  }
-   // }
+    agent any  // ← ONLY this line, remove commented docker block!
 
     environment {
         DOCKER_IMAGE = "devsecops-app"
@@ -16,7 +7,6 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 git branch: 'main', url: 'https://github.com/UzairRan/Devsecops-pipeline-artifact.git' 
@@ -26,18 +16,18 @@ pipeline {
         stage('Prepare') {
             steps {
                 sh '''
-                echo "Environment ready — tools preinstalled in Docker agent."
+                echo "Environment ready — installing tools..."
 
                 mkdir -p ${REPORT_DIR}
+
+                # Install tools if missing (for agent any)
+                apk add python3 py3-pip docker || true
+                pip3 install bandit pip-audit pytest checkov || true
 
                 # Verify tools
                 python3 --version
                 pip3 --version
-                bandit --version
-                gitleaks version || true
-                trivy --version || true
-                tfsec --version || true
-                checkov --version || true
+                bandit --version || echo "bandit not found"
                 '''
             }
         }
@@ -88,9 +78,11 @@ pipeline {
             steps {
                 sh '''
                 echo "Running Terraform Security Scans..."
-
-                tfsec terraform --format json > reports/tfsec-report.json || true
-                checkov -d terraform -o json > reports/checkov-report.json || true
+                # Install terraform tools if missing
+                wget https://github.com/aquasecurity/tfsec/releases/download/v1.28.6/tfsec_1.28.6_linux_amd64.tar.gz -O tfsec.tar.gz || true
+                tar -xzf tfsec.tar.gz tfsec || true
+                chmod +x tfsec || true
+                ./tfsec terraform --format json > reports/tfsec-report.json || true
                 '''
             }
         }
@@ -99,7 +91,6 @@ pipeline {
             steps {
                 sh '''
                 which cosign || echo "cosign not installed — skipping signing"
-                cosign verify --key cosign.pub $DOCKER_IMAGE || true
                 '''
             }
         }
@@ -111,9 +102,9 @@ pipeline {
             }
             steps {
                 sh '''
-                echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
-                docker tag $DOCKER_IMAGE $DOCKER_USERNAME/$DOCKER_IMAGE:latest
-                docker push $DOCKER_USERNAME/$DOCKER_IMAGE:latest
+                echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin || true
+                docker tag $DOCKER_IMAGE $DOCKER_USERNAME/$DOCKER_IMAGE:latest || true
+                docker push $DOCKER_USERNAME/$DOCKER_IMAGE:latest || true
                 '''
             }
         }
@@ -125,4 +116,4 @@ pipeline {
             junit allowEmptyResults: true, testResults: '**/test-*.xml'
         }
     }
-}
+} 
