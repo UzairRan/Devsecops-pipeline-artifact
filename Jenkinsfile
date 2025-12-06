@@ -1,13 +1,14 @@
 pipeline {
 
-// with agents and docker image
+// with agent any 
 
-    agent {
-        docker {
-            image 'devsecops-tools:latest'   // your custom tools image
+      agent any  // ← CHANGED FROM docker TO any
+//    agent {
+ //       docker {
+    //        image 'devsecops-tools:latest'   // your custom tools image
             args '-u root --privileged -v /var/run/docker.sock:/var/run/docker.sock'
-        }
-    }
+      //  }
+   // }
 
     environment {
         DOCKER_IMAGE = "devsecops-app"
